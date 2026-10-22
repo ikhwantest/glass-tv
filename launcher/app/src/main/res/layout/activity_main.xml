@@ -180,6 +180,34 @@
                         </LinearLayout>
                     </FrameLayout>
                 </LinearLayout>
+
+                <TextView
+                    android:id="@+id/prayerTimes"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:fontFamily="@font/outfit"
+                    android:fontVariationSettings="'wght' 400"
+                    android:textColor="#CCFFFFFF"
+                    android:textSize="12sp"
+                    android:letterSpacing="0.01"
+                    android:singleLine="false"
+                    android:maxLines="2"
+                    android:ellipsize="end"
+                    android:text="Waktu solat: memuatkan data JAKIM..." />
+
+                <TextView
+                    android:id="@+id/nextPrayer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:fontFamily="@font/outfit"
+                    android:fontVariationSettings="'wght' 500"
+                    android:textColor="#FFFFFFFF"
+                    android:textSize="13sp"
+                    android:singleLine="true"
+                    android:ellipsize="end"
+                    android:text="Solat seterusnya: memuatkan..." />
             </LinearLayout>
 
             <LinearLayout

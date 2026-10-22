@@ -26,6 +26,17 @@ import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.NetworkRequest;
 import android.net.Uri;
+import org.json.JSONArray;
+import org.json.JSONObject;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.TimeZone;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.Build;
@@ -128,6 +139,21 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private View btnInputs;
     private TextView btnWifi;
     private TextView shamsiDate;
+    private TextView prayerTimesView;
+    private TextView nextPrayerView;
+
+    private static final String JAKIM_ZONE = "NGS02";
+    private static final String PRAYER_PREFS = "jakim_prayer_cache";
+    private static final String[] PRAYER_KEYS = {
+            "fajr", "syuruk", "dhuhr", "asr", "maghrib", "isha"
+    };
+    private static final String[] PRAYER_NAMES = {
+            "Subuh", "Syuruk", "Zohor", "Asar", "Maghrib", "Isyak"
+    };
+    private final ExecutorService prayerExecutor =
+            Executors.newSingleThreadExecutor();
+    private volatile boolean prayerFetchRunning;
+    private String prayerDate = "";
     private boolean shamsi;
     private String vpnApp;
     private SpringAnimation springX, springY;
@@ -232,6 +258,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         public void run() {
             updateShamsiDate();
             updateWifiLabel();
+            updateNextPrayerCountdown();
             refreshPlacesIfDue();
             handler.postDelayed(this, MINUTE_MS);
         }
@@ -292,6 +319,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         btnWifi = findViewById(R.id.btnWifi);
         if (!cfg.showNetworkPill) btnWifi.setVisibility(View.GONE);
         shamsiDate = findViewById(R.id.shamsiDate);
+        prayerTimesView = findViewById(R.id.prayerTimes);
+        nextPrayerView = findViewById(R.id.nextPrayer);
         shamsi = cfg.shamsiDate;
         if (shamsi) {
             shamsiDate.setVisibility(View.VISIBLE);
@@ -671,6 +700,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         updateShamsiDate();
         updateWifiLabel();
         updateInputsButton();
+        showCachedPrayerTimes();
+        refreshPrayerTimes(false);
         startWallpaperRotation();
         handler.postDelayed(minuteTick, MINUTE_MS);
         handler.removeCallbacks(cacheClean);
@@ -1457,6 +1488,165 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     }
 
     // ---- top bar ---------------------------------------------------------------------------------
+
+
+    private void refreshPrayerTimes(boolean force) {
+        if (prayerFetchRunning) return;
+
+        String today = new SimpleDateFormat("dd-MMM-yyyy", Locale.US)
+                .format(new Date());
+        android.content.SharedPreferences prefs =
+                getSharedPreferences(PRAYER_PREFS, MODE_PRIVATE);
+        String cachedDate = prefs.getString("date", "");
+        long fetchedAt = prefs.getLong("fetched_at", 0L);
+
+        if (!force && today.equals(cachedDate)
+                && System.currentTimeMillis() - fetchedAt < 6 * 60 * 60 * 1000L) {
+            showCachedPrayerTimes();
+            return;
+        }
+
+        prayerFetchRunning = true;
+        prayerExecutor.execute(() -> {
+            HttpURLConnection connection = null;
+            try {
+                URL url = new URL(
+                        "https://www.e-solat.gov.my/index.php?r=esolatApi/takwimsolat&period=today&zone="
+                                + JAKIM_ZONE);
+                connection = (HttpURLConnection) url.openConnection();
+                connection.setRequestMethod("GET");
+                connection.setConnectTimeout(10000);
+                connection.setReadTimeout(10000);
+                connection.setRequestProperty("Accept", "application/json");
+
+                try (BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(connection.getInputStream(), "UTF-8"))) {
+                    StringBuilder body = new StringBuilder();
+                    String line;
+                    while ((line = reader.readLine()) != null) body.append(line);
+
+                    JSONObject root = new JSONObject(body.toString());
+                    JSONArray rows = root.optJSONArray("prayerTime");
+                    if (rows == null || rows.length() == 0
+                            || !root.optString("status").toUpperCase(Locale.ROOT).contains("OK")) {
+                        throw new Exception("Respons API JAKIM tidak sah");
+                    }
+
+                    JSONObject row = rows.getJSONObject(0);
+                    String apiDate = row.optString("date", today);
+                    String[] times = new String[PRAYER_KEYS.length];
+                    for (int i = 0; i < PRAYER_KEYS.length; i++) {
+                        times[i] = row.optString(PRAYER_KEYS[i], "");
+                        if (!times[i].matches("\\d{2}:\\d{2}(:\\d{2})?")) {
+                            throw new Exception("Waktu solat tidak lengkap");
+                        }
+                        if (times[i].length() == 8) times[i] = times[i].substring(0, 5);
+                    }
+
+                    android.content.SharedPreferences.Editor editor = prefs.edit();
+                    editor.putString("date", apiDate);
+                    editor.putLong("fetched_at", System.currentTimeMillis());
+                    for (int i = 0; i < times.length; i++) {
+                        editor.putString(PRAYER_KEYS[i], times[i]);
+                    }
+                    editor.apply();
+
+                    runOnUiThread(() -> {
+                        prayerDate = apiDate;
+                        displayPrayerTimes(times);
+                        updateNextPrayerCountdown();
+                    });
+                }
+            } catch (Exception e) {
+                android.util.Log.w("GlassTV-Prayer", "Gagal mengambil data JAKIM", e);
+                runOnUiThread(this::showCachedPrayerTimes);
+            } finally {
+                if (connection != null) connection.disconnect();
+                prayerFetchRunning = false;
+            }
+        });
+    }
+
+    private void showCachedPrayerTimes() {
+        android.content.SharedPreferences prefs =
+                getSharedPreferences(PRAYER_PREFS, MODE_PRIVATE);
+        String[] times = new String[PRAYER_KEYS.length];
+        boolean found = false;
+        for (int i = 0; i < PRAYER_KEYS.length; i++) {
+            times[i] = prefs.getString(PRAYER_KEYS[i], "");
+            if (!times[i].isEmpty()) found = true;
+        }
+        prayerDate = prefs.getString("date", "");
+        if (found) {
+            displayPrayerTimes(times);
+            updateNextPrayerCountdown();
+        } else if (prayerTimesView != null) {
+            prayerTimesView.setText("Waktu solat JAKIM belum tersedia");
+            nextPrayerView.setText("Sambungkan internet untuk memuatkan data");
+        }
+    }
+
+    private void displayPrayerTimes(String[] times) {
+        if (prayerTimesView == null) return;
+        StringBuilder text = new StringBuilder();
+        for (int i = 0; i < times.length; i++) {
+            if (i > 0) text.append("   ·   ");
+            text.append(PRAYER_NAMES[i]).append(' ').append(times[i]);
+        }
+        prayerTimesView.setText(text.toString());
+    }
+
+    private void updateNextPrayerCountdown() {
+        if (nextPrayerView == null) return;
+
+        android.content.SharedPreferences prefs =
+                getSharedPreferences(PRAYER_PREFS, MODE_PRIVATE);
+        Calendar now = Calendar.getInstance(TimeZone.getTimeZone("Asia/Kuala_Lumpur"));
+        Calendar next = null;
+        String nextName = "";
+
+        // Syuruk is displayed in the timetable, but is not a fardu prayer.
+        int[] farduIndices = {0, 2, 3, 4, 5};
+        for (int i : farduIndices) {
+            String time = prefs.getString(PRAYER_KEYS[i], "");
+            if (time.length() < 5) continue;
+            try {
+                Calendar candidate = (Calendar) now.clone();
+                candidate.set(Calendar.HOUR_OF_DAY, Integer.parseInt(time.substring(0, 2)));
+                candidate.set(Calendar.MINUTE, Integer.parseInt(time.substring(3, 5)));
+                candidate.set(Calendar.SECOND, 0);
+                candidate.set(Calendar.MILLISECOND, 0);
+                if (candidate.after(now)) {
+                    next = candidate;
+                    nextName = PRAYER_NAMES[i];
+                    break;
+                }
+            } catch (Exception ignored) { }
+        }
+
+        if (next == null) {
+            String fajr = prefs.getString("fajr", "");
+            if (!fajr.isEmpty()) {
+                next = (Calendar) now.clone();
+                next.add(Calendar.DAY_OF_MONTH, 1);
+                next.set(Calendar.HOUR_OF_DAY, Integer.parseInt(fajr.substring(0, 2)));
+                next.set(Calendar.MINUTE, Integer.parseInt(fajr.substring(3, 5)));
+                next.set(Calendar.SECOND, 0);
+                next.set(Calendar.MILLISECOND, 0);
+                nextName = "Subuh";
+            }
+        }
+
+        if (next == null) {
+            nextPrayerView.setText("Solat seterusnya: menunggu data JAKIM");
+            return;
+        }
+
+        long minutes = Math.max(0, (next.getTimeInMillis() - now.getTimeInMillis()) / 60000L);
+        nextPrayerView.setText(String.format(Locale.getDefault(),
+                "Solat seterusnya: %s dalam %02d jam %02d minit",
+                nextName, minutes / 60, minutes % 60));
+    }
 
     private void updateShamsiDate() {
         if (shamsi) shamsiDate.setText(Shamsi.today());
