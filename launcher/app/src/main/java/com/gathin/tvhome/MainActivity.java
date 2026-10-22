@@ -142,7 +142,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private TextView prayerTimesView;
     private TextView nextPrayerView;
 
-    private static final String JAKIM_ZONE = "NGS02";
+    private static final String JAKIM_ZONE = "NGS03";
     private static final String PRAYER_PREFS = "jakim_prayer_cache";
     private static final String[] PRAYER_KEYS = {
             "fajr", "syuruk", "dhuhr", "asr", "maghrib", "isha"
