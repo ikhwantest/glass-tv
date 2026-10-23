@@ -18,6 +18,8 @@ import android.graphics.Rect;
 import android.graphics.Shader;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.ColorDrawable;
+import android.media.MediaPlayer;
+import android.media.AudioManager;
 import android.media.tv.TvContract;
 import android.media.tv.TvInputInfo;
 import android.media.tv.TvInputManager;
@@ -141,6 +143,29 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private TextView shamsiDate;
     private TextView prayerTimesView;
     private TextView nextPrayerView;
+
+    private MediaPlayer azanPlayer;
+
+    private void stopAzan() {
+        if (azanPlayer != null) {
+            try {
+                if (azanPlayer.isPlaying()) azanPlayer.stop();
+            } catch (IllegalStateException ignored) {}
+            azanPlayer.release();
+            azanPlayer = null;
+        }
+    }
+
+    private void playAzan(boolean fajr) {
+        stopAzan();
+        azanPlayer = MediaPlayer.create(this,
+                fajr ? R.raw.azan_subuh : R.raw.azan_regular);
+        if (azanPlayer == null) return;
+        azanPlayer.setAudioStreamType(AudioManager.STREAM_MUSIC);
+        azanPlayer.setVolume(0.20f, 0.20f);
+        azanPlayer.setOnCompletionListener(mp -> stopAzan());
+        azanPlayer.start();
+    }
 
     private static final String JAKIM_ZONE = "NGS03";
     private static final String PRAYER_PREFS = "jakim_prayer_cache";
@@ -666,6 +691,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
+        if (intent != null && intent.hasExtra("test_azan")) {
+            playAzan("subuh".equalsIgnoreCase(intent.getStringExtra("test_azan")));
+            return;
+        }
         if (intent == null || !intent.hasCategory(Intent.CATEGORY_HOME)) return;
         // Home pressed on Home goes back to the first app. Home pressed in another app comes back to
         // the app you left from: resetting then made the selection run from it to the first app.
