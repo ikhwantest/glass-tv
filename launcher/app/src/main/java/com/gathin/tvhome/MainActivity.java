@@ -162,7 +162,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 fajr ? R.raw.azan_subuh : R.raw.azan_regular);
         if (azanPlayer == null) return;
         azanPlayer.setAudioStreamType(AudioManager.STREAM_MUSIC);
-        azanPlayer.setVolume(0.20f, 0.20f);
+        azanPlayer.setVolume(0.50f, 0.50f);
         azanPlayer.setOnCompletionListener(mp -> stopAzan());
         azanPlayer.start();
     }
