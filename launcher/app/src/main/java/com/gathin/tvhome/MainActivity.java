@@ -271,6 +271,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         density = getResources().getDisplayMetrics().density;
         // config.xml, overlaid by config.json from a pushed theme (see Config and tools/theme.sh).
         Config cfg = Config.load(this);
+        config = cfg;
         COLUMNS = cfg.columns;
         reducedMotion = cfg.reducedMotion;
         liveTvPkg = cfg.liveTvPackage;
@@ -287,7 +288,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (Math.abs(launch.getLong("boot_at", 0) - bootAt) < 60_000) tilesAnimatedOnce = true;
         else launch.edit().putLong("boot_at", bootAt).apply();
         root.setBackgroundColor(cfg.backgroundColor);
-        config = cfg;
         wallpapers = cfg.wallpapers;
         wallpaperIntervalMs = cfg.wallpaperIntervalMs;
         placesMode = cfg.places;
@@ -395,6 +395,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                     AnimationUtils.loadAnimation(this, enterAnim), enterDelay));
         }
         adapter = new AppAdapter(this, this, COLUMNS, cfg);
+        boolean hideNonDock = getSharedPreferences("launcher_visibility", MODE_PRIVATE)
+                .getBoolean("hide_non_dock", false);
+        applyNonDockVisibility(cfg, hideNonDock);
         grid.setAdapter(adapter);
 
         // tvOS layout: push the dock row towards the bottom of the screen, leaving room for
@@ -709,6 +712,16 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         hiddenSinceResume = false;
     }
 
+    /** Toggle launcher visibility only; packages remain installed and enabled. */
+    private void setNonDockHidden(boolean hide) {
+        getSharedPreferences("launcher_visibility", MODE_PRIVATE)
+                .edit().putBoolean("hide_non_dock", hide).apply();
+        applyNonDockVisibility(config, hide);
+        reloadApps(false);
+        android.util.Log.i("TvHome.Visibility",
+                hide ? "Non-dock apps hidden from launcher" : "Non-dock apps shown in launcher");
+    }
+
     /** Rebuilds the tiles (and the module cards), then puts focus back where it was. */
     private void reloadApps(boolean animate) {
         // Capture the app before rebinding can move focus and overwrite its key.
@@ -755,6 +768,28 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
      * Every step into the card code runs under CardFeature: if it fails, the tiles are the ordinary
      * ones and cards stay off for this process.
      */
+    /**
+     * Apply the optional launcher-only filter. Packages remain installed and enabled.
+     * The theme's configured hiddenApps are always preserved.
+     */
+    private void applyNonDockVisibility(Config cfg, boolean hideNonDock) {
+        Set<String> effectiveHidden = new HashSet<>(cfg.hiddenApps);
+        if (hideNonDock) {
+            Intent probe = new Intent(Intent.ACTION_MAIN)
+                    .addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER);
+            android.content.pm.PackageManager pm = getPackageManager();
+            for (android.content.pm.ResolveInfo ri : pm.queryIntentActivities(probe, 0)) {
+                if (ri.activityInfo == null) continue;
+                String pkg = ri.activityInfo.packageName;
+                if (!cfg.dockApps.contains(pkg) && !pkg.equals(getPackageName())) {
+                    effectiveHidden.add(pkg);
+                }
+            }
+        }
+        hiddenApps = effectiveHidden;
+        adapter.setHiddenPackages(effectiveHidden);
+    }
+
     private boolean reloadTiles() {
         // Read these before reload(): rebinding can move focus to the first tile and overwrite them.
         final String returnKey = lastFocusedKey;
@@ -1287,6 +1322,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private android.animation.ObjectAnimator wiggle;
     /** A key whose release is swallowed: the OK or Back that put a moved tile down must not also open it. */
     private int swallowRelease = -1;
+    // Triple-DPAD shortcut state; repeated key-down events from a held key are ignored.
+    private int tripleKeyCode = -1;
+    private int tripleKeyCount = 0;
+    private long tripleKeyLastAt = 0L;
     /**
      * Slides the tiles into their new places while an app is moved. The grid has no item animations
      * otherwise: they would replay on every rebuild and cost frames while scrolling.
@@ -1404,8 +1443,36 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             swallowRelease = -1;
             return true;
         }
-        if (movingPos < 0) return super.dispatchKeyEvent(event);
         boolean down = event.getAction() == KeyEvent.ACTION_DOWN;
+
+        // Triple-UP hides non-dock apps; triple-DOWN shows them again.
+        // Ignore key-repeat events and keep this shortcut out of move/reorder mode.
+        if (movingPos < 0 &&
+                (code == KeyEvent.KEYCODE_DPAD_UP || code == KeyEvent.KEYCODE_DPAD_DOWN)) {
+            if (down && event.getRepeatCount() == 0) {
+                long now = android.os.SystemClock.uptimeMillis();
+                if (tripleKeyCode == code && now - tripleKeyLastAt <= 1500L) {
+                    tripleKeyCount++;
+                } else {
+                    tripleKeyCode = code;
+                    tripleKeyCount = 1;
+                }
+                tripleKeyLastAt = now;
+
+                if (tripleKeyCount >= 3) {
+                    tripleKeyCount = 0;
+                    tripleKeyCode = -1;
+                    setNonDockHidden(code == KeyEvent.KEYCODE_DPAD_UP);
+                    swallowRelease = code;
+                    return true;
+                }
+            }
+        } else if (down && event.getRepeatCount() == 0) {
+            tripleKeyCount = 0;
+            tripleKeyCode = -1;
+        }
+
+        if (movingPos < 0) return super.dispatchKeyEvent(event);
         switch (code) {
             case KeyEvent.KEYCODE_DPAD_LEFT:
             case KeyEvent.KEYCODE_DPAD_RIGHT:

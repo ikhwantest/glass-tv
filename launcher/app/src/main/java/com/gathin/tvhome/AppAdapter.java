@@ -267,6 +267,13 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
         return true;
     }
 
+    /** Replace the runtime hidden-app set without disabling or uninstalling packages. */
+    void setHiddenPackages(Set<String> packages) {
+        hidden.clear();
+        hidden.addAll(packages);
+        builtFrom = null; // Force reload() to rebuild the visible tile list.
+    }
+
     private Drawable loadBanner(PackageManager pm, ResolveInfo ri) {
         int id = ri.activityInfo.banner;
         if (id == 0) id = ri.activityInfo.applicationInfo.banner;
