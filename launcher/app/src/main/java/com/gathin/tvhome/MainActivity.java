@@ -781,7 +781,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             for (android.content.pm.ResolveInfo ri : pm.queryIntentActivities(probe, 0)) {
                 if (ri.activityInfo == null) continue;
                 String pkg = ri.activityInfo.packageName;
-                if (!cfg.dockApps.contains(pkg) && !pkg.equals(getPackageName())) {
+                if (!pkg.equals(getPackageName())) {
                     effectiveHidden.add(pkg);
                 }
             }
