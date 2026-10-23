@@ -507,6 +507,8 @@ public class AppAdapter extends RecyclerView.Adapter<AppAdapter.Holder> {
             this.reducedMotion = reducedMotion;
 
             final float density = v.getResources().getDisplayMetrics().density;
+            label.setShadowLayer(4f * density, 1f * density, 2f * density, 0xCC000000);
+            name.setShadowLayer(4f * density, 1f * density, 2f * density, 0xCC000000);
             card.setOutlineProvider(new ViewOutlineProvider() {
                 @Override
                 public void getOutline(View view, Outline outline) {
