@@ -734,6 +734,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         updateWifiLabel();
         updateInputsButton();
         showCachedPrayerTimes();
+        checkPrayerAzan();
         refreshPrayerTimes(false);
         startWallpaperRotation();
         handler.postDelayed(minuteTick, MINUTE_MS);
