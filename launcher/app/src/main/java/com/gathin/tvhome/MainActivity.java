@@ -284,6 +284,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             updateShamsiDate();
             updateWifiLabel();
             updateNextPrayerCountdown();
+            checkPrayerAzan();
             refreshPlacesIfDue();
             handler.postDelayed(this, MINUTE_MS);
         }
@@ -1690,6 +1691,22 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             text.append(PRAYER_NAMES[i]).append(' ').append(times[i]);
         }
         prayerTimesView.setText(text.toString());
+    }
+
+    private void checkPrayerAzan() {
+        Calendar now = Calendar.getInstance(TimeZone.getTimeZone("Asia/Kuala_Lumpur"));
+        String currentTime = new SimpleDateFormat("HH:mm", Locale.US).format(now.getTime());
+        String today = new SimpleDateFormat("yyyy-MM-dd", Locale.US).format(now.getTime());
+        android.content.SharedPreferences prefs = getSharedPreferences(PRAYER_PREFS, MODE_PRIVATE);
+        int[] farduIndices = {0, 2, 3, 4, 5};
+        for (int i : farduIndices) {
+            if (!currentTime.equals(prefs.getString(PRAYER_KEYS[i], ""))) continue;
+            String key = today + "|" + PRAYER_KEYS[i];
+            if (key.equals(prefs.getString("last_azan_key", ""))) return;
+            prefs.edit().putString("last_azan_key", key).apply();
+            playAzan(i == 0);
+            return;
+        }
     }
 
     private void updateNextPrayerCountdown() {
